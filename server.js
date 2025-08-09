@@ -1,5 +1,8 @@
-// server.js
-require('dotenv').config(); // <-- load .env variables
+// Force IPv4 DNS resolution to avoid ENETUNREACH on some hosts
+const dns = require('node:dns');
+dns.setDefaultResultOrder('ipv4first');
+
+require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
@@ -12,7 +15,9 @@ const menu = require('./menu.json');
 
 // ENV variables
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
-const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_URL =
+  process.env.DATABASE_URL ||
+  'postgresql://postgres.fkxdolkyesmmxrtvblru:Catfish33!@aws-0-us-east-1.pooler.supabase.com:5432/postgres';
 
 if (!DATABASE_URL) {
   console.error('❌ DATABASE_URL is not set in .env');
@@ -167,6 +172,8 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
+
 
 
 
