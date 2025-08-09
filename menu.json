@@ -1,0 +1,88 @@
+{
+  "categories": [
+    {
+      "name": "Appetizers",
+      "items": [
+        { "id": 1, "name": "Hot Dogs (2)", "description": "100% beef dogs", "price": 5.00, "imageUrl": "" },
+        { "id": 2, "name": "Personal Pizza", "description": "Cheese pizza, add pepperoni or bacon +$1", "price": 8.00, "imageUrl": "" },
+        { "id": 3, "name": "Spring Rolls with Sweet Chili", "description": "", "price": 6.00, "imageUrl": "" },
+        { "id": 4, "name": "Corn Nuggets", "description": "", "price": 6.00, "imageUrl": "" },
+        { "id": 5, "name": "Mac & Cheese Bites", "description": "", "price": 6.00, "imageUrl": "" },
+        { "id": 6, "name": "Tots, Fries, or Onion Rings", "description": "", "price": 6.00, "imageUrl": "" },
+        { "id": 7, "name": "Mozzarella Sticks", "description": "", "price": 6.00, "imageUrl": "" },
+        { "id": 8, "name": "Southwest Egg Rolls", "description": "", "price": 6.00, "imageUrl": "" },
+        { "id": 9, "name": "Chips & Salsa", "description": "", "price": 6.00, "imageUrl": "" }
+      ]
+    },
+    {
+      "name": "Chicken",
+      "items": [
+        { "id": 10, "name": "Wings (Bone In/Out)", "description": "Mild, Medium, Hot, Extra Hot, Garlic Parmesan, BBQ, Teriyaki, Mango Habanero, Lemon Pepper, Carolina Reaper", "price": 10.00, "imageUrl": "" },
+        { "id": 11, "name": "Chicken Strips", "description": "", "price": 10.00, "imageUrl": "" },
+        { "id": 12, "name": "Combo Basket", "description": "", "price": 12.00, "imageUrl": "" }
+      ]
+    },
+    {
+      "name": "Sandwiches",
+      "items": [
+        { "id": 13, "name": "Club", "description": "Ham or turkey, cheese, bacon, lettuce, tomato, onion, mayo", "price": 10.00, "imageUrl": "" },
+        { "id": 14, "name": "Ham or Turkey with Cheese", "description": "Lettuce, tomato, onion, mayo", "price": 10.00, "imageUrl": "" },
+        { "id": 15, "name": "BLT", "description": "Bacon, lettuce, tomato, toasted white bread with mayo", "price": 10.00, "imageUrl": "" },
+        { "id": 16, "name": "PB & J", "description": "", "price": 5.00, "imageUrl": "" },
+        { "id": 17, "name": "Meatball Sub with Marinara", "description": "", "price": 10.00, "imageUrl": "" },
+        { "id": 18, "name": "Dozers Classic Cheeseburger", "description": "Lettuce, tomato, onion, pickles, cheese", "price": 10.00, "imageUrl": "" }
+      ]
+    },
+    {
+      "name": "Salads",
+      "items": [
+        { "id": 19, "name": "Garden Salad", "description": "Lettuce, tomato, cucumber, onion, shredded cheese, croutons", "price": 6.00, "imageUrl": "" },
+        { "id": 20, "name": "Chef Salad", "description": "Garden salad with ham, turkey, cheese, hard boiled egg, bacon", "price": 8.00, "imageUrl": "" },
+        { "id": 21, "name": "Classic Caesar", "description": "Romaine, parmesan, croutons", "price": 8.00, "imageUrl": "" },
+        { "id": 22, "name": "House Side Salad", "description": "", "price": 4.00, "imageUrl": "" }
+      ]
+    },
+    {
+      "name": "Wraps",
+      "items": [
+        { "id": 23, "name": "Wrap Option", "description": "Any salad or sandwich as a wrap (spinach, tomato basil, low carb)", "price": 10.00, "imageUrl": "" }
+      ]
+    },
+    {
+      "name": "Sides",
+      "items": [
+        { "id": 24, "name": "Fries", "description": "", "price": 3.00, "imageUrl": "" },
+        { "id": 25, "name": "Tots", "description": "", "price": 3.00, "imageUrl": "" },
+        { "id": 26, "name": "Onion Rings", "description": "", "price": 3.00, "imageUrl": "" },
+        { "id": 27, "name": "Chips", "description": "", "price": 2.00, "imageUrl": "" },
+        { "id": 28, "name": "Cookies", "description": "", "price": 2.00, "imageUrl": "" }
+      ]
+    },
+    {
+      "name": "Bottles & Tap",
+      "items": [
+        { "id": 29, "name": "Bud/Bud Light", "description": "Domestic", "price": 4.00, "imageUrl": "" },
+        { "id": 30, "name": "Coors/Coors Light", "description": "Domestic", "price": 4.00, "imageUrl": "" },
+        { "id": 31, "name": "Michelob Ultra/Miller Light", "description": "Domestic", "price": 4.00, "imageUrl": "" },
+        { "id": 32, "name": "Blue Moon", "description": "Import", "price": 5.00, "imageUrl": "" },
+        { "id": 33, "name": "Corona", "description": "Import", "price": 5.00, "imageUrl": "" },
+        { "id": 34, "name": "Modelo", "description": "Import", "price": 5.00, "imageUrl": "" },
+        { "id": 35, "name": "Guinness", "description": "Import", "price": 5.00, "imageUrl": "" },
+        { "id": 36, "name": "Coors Light Draft", "description": "Draft", "price": 5.50, "imageUrl": "" },
+        { "id": 37, "name": "Blue Moon Draft", "description": "Draft", "price": 6.50, "imageUrl": "" },
+        { "id": 38, "name": "Angry Orchard", "description": "Cider", "price": 5.00, "imageUrl": "" },
+        { "id": 39, "name": "White Claw", "description": "Cider/Seltzer", "price": 5.00, "imageUrl": "" }
+      ]
+    },
+    {
+      "name": "Cocktails",
+      "items": [
+        { "id": 40, "name": "Spicy Bloody Mary", "description": "", "price": 6.00, "imageUrl": "" },
+        { "id": 41, "name": "White Russian", "description": "", "price": 6.00, "imageUrl": "" },
+        { "id": 42, "name": "Margarita", "description": "", "price": 6.00, "imageUrl": "" },
+        { "id": 43, "name": "Long Island", "description": "", "price": 6.00, "imageUrl": "" },
+        { "id": 44, "name": "Tiki Rum Punch", "description": "", "price": 6.00, "imageUrl": "" }
+      ]
+    }
+  ]
+}
