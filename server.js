@@ -1,22 +1,22 @@
-import eventsRouter from './routes/events.js';
-import dotenv from 'dotenv';
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { Pool } from 'pg';
-import menu from './menu.json' assert { type: 'json' };
-import dns from 'node:dns';
+// server.js
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { Pool } = require('pg');
+const dotenv = require('dotenv');
+const dns = require('node:dns');
+const menu = require('./menu.json');
 
-// Load environment variables
+// Load env vars
 dotenv.config();
 
-// Force IPv4 DNS resolution (avoids ENETUNREACH on some hosts)
+// Force IPv4 DNS resolution
 dns.setDefaultResultOrder('ipv4first');
 
-// ENV variables
+// ENV
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 const DATABASE_URL =
   process.env.DATABASE_URL ||
@@ -27,7 +27,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-// Postgres pool
+// Postgres
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: { require: true, rejectUnauthorized: false },
@@ -48,7 +48,7 @@ function signToken(user) {
   );
 }
 
-// Create DB tables if they don't exist
+// DB table setup
 async function createTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -67,7 +67,7 @@ async function createTables() {
       title TEXT NOT NULL,
       description TEXT,
       location TEXT,
-      price NUMERIC(10, 2) DEFAULT 0,
+      price NUMERIC,
       is_featured BOOLEAN DEFAULT false,
       start_at TIMESTAMP,
       end_at TIMESTAMP,
@@ -89,7 +89,7 @@ function authRequired(req, res, next) {
   }
 }
 
-// Middleware: require specific role
+// Middleware: require role
 function requireRole(role) {
   return (req, res, next) => {
     if (!req.user || req.user.role !== role)
@@ -98,12 +98,12 @@ function requireRole(role) {
   };
 }
 
-// Root route
+// Routes
 app.get('/', (req, res) => {
   res.send('API online');
 });
 
-// Auth routes
+// Auth
 app.post('/auth/register', async (req, res) => {
   const { email, password, name } = req.body || {};
   if (!email || !password || !name)
@@ -156,13 +156,13 @@ app.get('/auth/me', authRequired, async (req, res) => {
   res.json(result.rows[0]);
 });
 
-// Admin route: list users
+// Admin users
 app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => {
   const result = await pool.query(`SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`);
   res.json(result.rows);
 });
 
-// Mock rewards
+// Rewards
 app.get('/rewards', (req, res) => {
   res.json({
     userId: 1,
@@ -176,13 +176,51 @@ app.get('/rewards', (req, res) => {
   });
 });
 
-// Mock menu
+// Menu
 app.get('/menu', (req, res) => {
   res.json(menu);
 });
 
-// Events router (POST, PUT, GET all included)
-app.use('/events', eventsRouter);
+// EVENTS CRUD
+app.get('/events', async (req, res) => {
+  const { rows } = await pool.query(`SELECT * FROM events ORDER BY start_at ASC`);
+  res.json(rows);
+});
+
+app.post('/events', authRequired, requireRole('admin'), async (req, res) => {
+  const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
+  if (!title) return res.status(400).json({ error: 'missing_title' });
+
+  const result = await pool.query(
+    `INSERT INTO events (title, description, location, price, is_featured, start_at, end_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     RETURNING *`,
+    [title, description, location, price, is_featured, start_at, end_at]
+  );
+
+  res.status(201).json(result.rows[0]);
+});
+
+app.put('/events/:id', authRequired, requireRole('admin'), async (req, res) => {
+  const { id } = req.params;
+  const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
+
+  const result = await pool.query(
+    `UPDATE events
+     SET title=$1, description=$2, location=$3, price=$4, is_featured=$5, start_at=$6, end_at=$7
+     WHERE id=$8 RETURNING *`,
+    [title, description, location, price, is_featured, start_at, end_at, id]
+  );
+
+  if (result.rows.length === 0) return res.status(404).json({ error: 'event_not_found' });
+  res.json(result.rows[0]);
+});
+
+app.delete('/events/:id', authRequired, requireRole('admin'), async (req, res) => {
+  const { id } = req.params;
+  await pool.query(`DELETE FROM events WHERE id=$1`, [id]);
+  res.json({ success: true });
+});
 
 // Start server
 const PORT = process.env.PORT || 8080;
@@ -190,7 +228,6 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
-
 
 
 
