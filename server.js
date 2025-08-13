@@ -1,17 +1,20 @@
-// Force IPv4 DNS resolution to avoid ENETUNREACH on some hosts
-const dns = require('node:dns');
+import eventsRouter from './routes/events.js';
+import dotenv from 'dotenv';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { Pool } from 'pg';
+import menu from './menu.json' assert { type: 'json' };
+import dns from 'node:dns';
+
+// Load environment variables
+dotenv.config();
+
+// Force IPv4 DNS resolution (avoids ENETUNREACH on some hosts)
 dns.setDefaultResultOrder('ipv4first');
-
-require('dotenv').config();
-
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
-const menu = require('./menu.json');
 
 // ENV variables
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
@@ -27,7 +30,7 @@ if (!DATABASE_URL) {
 // Postgres pool
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // required for Supabase
+  ssl: { require: true, rejectUnauthorized: false },
 });
 
 const app = express();
@@ -57,6 +60,20 @@ async function createTables() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS events (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      location TEXT,
+      price NUMERIC(10, 2) DEFAULT 0,
+      is_featured BOOLEAN DEFAULT false,
+      start_at TIMESTAMP,
+      end_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 }
 
 // Middleware: require auth
@@ -81,12 +98,12 @@ function requireRole(role) {
   };
 }
 
-// Routes
+// Root route
 app.get('/', (req, res) => {
   res.send('API online');
 });
 
-// Register user
+// Auth routes
 app.post('/auth/register', async (req, res) => {
   const { email, password, name } = req.body || {};
   if (!email || !password || !name)
@@ -113,7 +130,6 @@ app.post('/auth/register', async (req, res) => {
   }
 });
 
-// Login user
 app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password)
@@ -131,7 +147,6 @@ app.post('/auth/login', async (req, res) => {
   res.json({ token, user });
 });
 
-// Get logged-in user info
 app.get('/auth/me', authRequired, async (req, res) => {
   const result = await pool.query(
     `SELECT id, email, name, role FROM users WHERE id=$1`,
@@ -141,7 +156,7 @@ app.get('/auth/me', authRequired, async (req, res) => {
   res.json(result.rows[0]);
 });
 
-// Admin: list all users
+// Admin route: list users
 app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => {
   const result = await pool.query(`SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`);
   res.json(result.rows);
@@ -166,12 +181,17 @@ app.get('/menu', (req, res) => {
   res.json(menu);
 });
 
+// Events router (POST, PUT, GET all included)
+app.use('/events', eventsRouter);
+
 // Start server
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
+
 
 
 
