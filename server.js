@@ -10,16 +10,11 @@ const dotenv = require('dotenv');
 const dns = require('node:dns');
 const menu = require('./menu.json');
 
-// Load env vars
 dotenv.config();
-
-// Force IPv4 DNS resolution
 dns.setDefaultResultOrder('ipv4first');
 
-// ENV
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
-const DATABASE_URL =
-  process.env.DATABASE_URL ||
+const DATABASE_URL = process.env.DATABASE_URL ||
   'postgresql://postgres.fkxdolkyesmmxrtvblru:Catfish33!@aws-0-us-east-1.pooler.supabase.com:5432/postgres';
 
 if (!DATABASE_URL) {
@@ -27,7 +22,6 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-// Postgres
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: { require: true, rejectUnauthorized: false },
@@ -39,7 +33,6 @@ app.use(express.json());
 app.use(helmet());
 app.use(rateLimit({ windowMs: 60_000, max: 120 }));
 
-// Helper: sign JWT
 function signToken(user) {
   return jwt.sign(
     { sub: user.id, role: user.role, name: user.name, email: user.email },
@@ -48,7 +41,6 @@ function signToken(user) {
   );
 }
 
-// DB table setup
 async function createTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -60,7 +52,6 @@ async function createTables() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
-
   await pool.query(`
     CREATE TABLE IF NOT EXISTS events (
       id SERIAL PRIMARY KEY,
@@ -76,38 +67,53 @@ async function createTables() {
   `);
 }
 
-// Middleware: require auth
+// Middleware — Require valid JWT
 function authRequired(req, res, next) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-  if (!token) return res.status(401).json({ error: 'missing_token' });
+  if (!token) {
+    return res.status(401).json({ error: 'missing_token', message: 'No token provided' });
+  }
   try {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
-    return res.status(401).json({ error: 'invalid_token' });
+    return res.status(401).json({ error: 'invalid_token', message: 'Token is invalid or expired' });
   }
 }
 
-// Middleware: require role
+// Middleware — Require specific role
 function requireRole(role) {
-  return (req, res, next) => {
-    if (!req.user || req.user.role !== role)
-      return res.status(403).json({ error: 'forbidden' });
-    next();
+  return async (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'unauthorized', message: 'User not authenticated' });
+    }
+    try {
+      const { rows } = await pool.query(
+        `SELECT role FROM users WHERE id = $1`,
+        [req.user.sub]
+      );
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'user_not_found' });
+      }
+      if (rows[0].role !== role) {
+        return res.status(403).json({ error: 'forbidden', message: `Must be ${role}` });
+      }
+      next();
+    } catch (err) {
+      console.error('Role check failed:', err);
+      res.status(500).json({ error: 'server_error' });
+    }
   };
 }
 
 // Routes
-app.get('/', (req, res) => {
-  res.send('API online');
-});
+app.get('/', (req, res) => res.send('API online'));
 
-// Auth
+// Register — auto admin by domain
 app.post('/auth/register', async (req, res) => {
   const { email, password, name } = req.body || {};
-  if (!email || !password || !name)
-    return res.status(400).json({ error: 'missing_fields' });
+  if (!email || !password || !name) return res.status(400).json({ error: 'missing_fields' });
 
   const domain = email.trim().toLowerCase().split('@')[1] || '';
   const adminDomains = ['slatermediacompany.com', 'dozersgrill.com'];
@@ -130,10 +136,10 @@ app.post('/auth/register', async (req, res) => {
   }
 });
 
+// Login
 app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
-  if (!email || !password)
-    return res.status(400).json({ error: 'missing_fields' });
+  if (!email || !password) return res.status(400).json({ error: 'missing_fields' });
 
   const result = await pool.query(`SELECT * FROM users WHERE email=$1`, [email.trim().toLowerCase()]);
   if (result.rows.length === 0) return res.status(401).json({ error: 'invalid_credentials' });
@@ -147,6 +153,7 @@ app.post('/auth/login', async (req, res) => {
   res.json({ token, user });
 });
 
+// Current user
 app.get('/auth/me', authRequired, async (req, res) => {
   const result = await pool.query(
     `SELECT id, email, name, role FROM users WHERE id=$1`,
@@ -156,9 +163,11 @@ app.get('/auth/me', authRequired, async (req, res) => {
   res.json(result.rows[0]);
 });
 
-// Admin users
+// Admin users list
 app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => {
-  const result = await pool.query(`SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`);
+  const result = await pool.query(
+    `SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`
+  );
   res.json(result.rows);
 });
 
@@ -167,21 +176,19 @@ app.get('/rewards', (req, res) => {
   res.json({
     userId: 1,
     points: 230,
-    tier: "Silver",
+    tier: 'Silver',
     history: [
-      { date: "2025-07-15", activity: "Food Order", points: 20 },
-      { date: "2025-07-08", activity: "Tournament Win", points: 50 },
-      { date: "2025-07-01", activity: "Food Order", points: 10 }
-    ]
+      { date: '2025-07-15', activity: 'Food Order', points: 20 },
+      { date: '2025-07-08', activity: 'Tournament Win', points: 50 },
+      { date: '2025-07-01', activity: 'Food Order', points: 10 },
+    ],
   });
 });
 
 // Menu
-app.get('/menu', (req, res) => {
-  res.json(menu);
-});
+app.get('/menu', (req, res) => res.json(menu));
 
-// EVENTS CRUD
+// Events CRUD
 app.get('/events', async (req, res) => {
   const { rows } = await pool.query(`SELECT * FROM events ORDER BY start_at ASC`);
   res.json(rows);
@@ -193,11 +200,9 @@ app.post('/events', authRequired, requireRole('admin'), async (req, res) => {
 
   const result = await pool.query(
     `INSERT INTO events (title, description, location, price, is_featured, start_at, end_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
-     RETURNING *`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
     [title, description, location, price, is_featured, start_at, end_at]
   );
-
   res.status(201).json(result.rows[0]);
 });
 
@@ -206,12 +211,10 @@ app.put('/events/:id', authRequired, requireRole('admin'), async (req, res) => {
   const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
 
   const result = await pool.query(
-    `UPDATE events
-     SET title=$1, description=$2, location=$3, price=$4, is_featured=$5, start_at=$6, end_at=$7
+    `UPDATE events SET title=$1, description=$2, location=$3, price=$4, is_featured=$5, start_at=$6, end_at=$7
      WHERE id=$8 RETURNING *`,
     [title, description, location, price, is_featured, start_at, end_at, id]
   );
-
   if (result.rows.length === 0) return res.status(404).json({ error: 'event_not_found' });
   res.json(result.rows[0]);
 });
@@ -222,12 +225,12 @@ app.delete('/events/:id', authRequired, requireRole('admin'), async (req, res) =
   res.json({ success: true });
 });
 
-// Start server
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
