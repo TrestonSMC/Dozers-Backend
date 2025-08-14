@@ -1,3 +1,5 @@
+// server.js (updated)
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -11,14 +13,10 @@ const menu = require('./menu.json');
 
 // Load env vars
 dotenv.config();
-
-// Force IPv4 DNS resolution
 dns.setDefaultResultOrder('ipv4first');
 
-// ENV
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
-const DATABASE_URL =
-  process.env.DATABASE_URL ||
+const DATABASE_URL = process.env.DATABASE_URL ||
   'postgresql://postgres.fkxdolkyesmmxrtvblru:Catfish33!@aws-0-us-east-1.pooler.supabase.com:5432/postgres';
 
 if (!DATABASE_URL) {
@@ -207,15 +205,7 @@ app.get('/events', async (req, res) => {
 });
 
 app.post('/events', authRequired, requireRole('admin'), async (req, res) => {
-  const {
-    title,
-    description,
-    location,
-    price,
-    is_featured,
-    start_at,
-    end_at,
-  } = req.body || {};
+  const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
   if (!title) return res.status(400).json({ error: 'missing_title' });
 
   const result = await pool.query(
@@ -230,15 +220,7 @@ app.post('/events', authRequired, requireRole('admin'), async (req, res) => {
 
 app.put('/events/:id', authRequired, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
-  const {
-    title,
-    description,
-    location,
-    price,
-    is_featured,
-    start_at,
-    end_at,
-  } = req.body || {};
+  const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
 
   const result = await pool.query(
     `UPDATE events
@@ -266,14 +248,12 @@ app.get('/admin/videos', authRequired, requireRole('admin'), async (req, res) =>
 
 app.post('/admin/videos', authRequired, requireRole('admin'), async (req, res) => {
   const { title, description, video_url } = req.body || {};
-  if (!title || !video_url) {
+  if (!title || !video_url)
     return res.status(400).json({ error: 'missing_fields' });
-  }
 
   const result = await pool.query(
     `INSERT INTO videos (title, description, video_url)
-     VALUES ($1, $2, $3)
-     RETURNING *`,
+     VALUES ($1, $2, $3) RETURNING *`,
     [title, description, video_url]
   );
 
