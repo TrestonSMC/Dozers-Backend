@@ -1,263 +1,113 @@
-// server.js
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
-const dotenv = require('dotenv');
-const dns = require('node:dns');
-const menu = require('./menu.json');
-
-dotenv.config();
-dns.setDefaultResultOrder('ipv4first');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
-const DATABASE_URL = process.env.DATABASE_URL ||
-  'postgresql://postgres.fkxdolkyesmmxrtvblru:Catfish33!@aws-0-us-east-1.pooler.supabase.com:5432/postgres';
-
-if (!DATABASE_URL) {
-  console.error('❌ DATABASE_URL is not set in .env');
-  process.exit(1);
-}
-
-const pool = new Pool({
-  connectionString: DATABASE_URL,
-  ssl: { require: true, rejectUnauthorized: false },
-});
 
 const app = express();
 app.use(cors());
-app.use(express.json());
 app.use(helmet());
-app.use(rateLimit({ windowMs: 60_000, max: 120 }));
+app.use(express.json());
 
-function signToken(user) {
-  return jwt.sign(
-    { sub: user.id, role: user.role, name: user.name, email: user.email },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-}
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
-async function createTables() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      name TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'customer',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
+// JWT authentication middleware
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'No token provided' });
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS events (
-      id SERIAL PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT,
-      location TEXT,
-      price NUMERIC,
-      is_featured BOOLEAN DEFAULT false,
-      start_at TIMESTAMP,
-      end_at TIMESTAMP,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS videos (
-      id SERIAL PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT,
-      video_url TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-}
-
-function authRequired(req, res, next) {
-  const auth = req.headers.authorization || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-  if (!token) return res.status(401).json({ error: 'missing_token' });
-  try {
-    req.user = jwt.verify(token, JWT_SECRET);
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid token' });
+    req.user = user;
     next();
-  } catch {
-    return res.status(401).json({ error: 'invalid_token' });
-  }
-}
-
-function requireRole(role) {
-  return (req, res, next) => {
-    if (!req.user || req.user.role !== role)
-      return res.status(403).json({ error: 'forbidden' });
-    next();
-  };
-}
-
-// Root
-app.get('/', (req, res) => {
-  res.send('API online');
-});
-
-// Auth
-app.post('/auth/register', async (req, res) => {
-  const { email, password, name } = req.body || {};
-  if (!email || !password || !name)
-    return res.status(400).json({ error: 'missing_fields' });
-
-  const domain = email.trim().toLowerCase().split('@')[1] || '';
-  const adminDomains = ['slatermediacompany.com', 'dozersgrill.com'];
-  const role = adminDomains.includes(domain) ? 'admin' : 'customer';
-
-  const hash = await bcrypt.hash(password, 10);
-  try {
-    const result = await pool.query(
-      `INSERT INTO users (email, password_hash, name, role)
-       VALUES ($1, $2, $3, $4) RETURNING id, email, name, role`,
-      [email.trim().toLowerCase(), hash, name.trim(), role]
-    );
-    const user = result.rows[0];
-    const token = signToken(user);
-    res.json({ token, user });
-  } catch (e) {
-    if (String(e).includes('duplicate key'))
-      return res.status(409).json({ error: 'email_exists' });
-    res.status(500).json({ error: 'register_failed' });
-  }
-});
-
-app.post('/auth/login', async (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password)
-    return res.status(400).json({ error: 'missing_fields' });
-
-  const result = await pool.query(`SELECT * FROM users WHERE email=$1`, [
-    email.trim().toLowerCase(),
-  ]);
-  if (result.rows.length === 0)
-    return res.status(401).json({ error: 'invalid_credentials' });
-
-  const row = result.rows[0];
-  const ok = await bcrypt.compare(password, row.password_hash);
-  if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
-
-  const user = { id: row.id, email: row.email, name: row.name, role: row.role };
-  const token = signToken(user);
-  res.json({ token, user });
-});
-
-app.get('/auth/me', authRequired, async (req, res) => {
-  const result = await pool.query(
-    `SELECT id, email, name, role FROM users WHERE id=$1`,
-    [req.user.sub]
-  );
-  if (result.rows.length === 0)
-    return res.status(404).json({ error: 'user_not_found' });
-  res.json(result.rows[0]);
-});
-
-// Admin users
-app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => {
-  const result = await pool.query(
-    `SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`
-  );
-  res.json(result.rows);
-});
-
-// Rewards
-app.get('/rewards', (req, res) => {
-  res.json({
-    userId: 1,
-    points: 230,
-    tier: 'Silver',
-    history: [
-      { date: '2025-07-15', activity: 'Food Order', points: 20 },
-      { date: '2025-07-08', activity: 'Tournament Win', points: 50 },
-      { date: '2025-07-01', activity: 'Food Order', points: 10 },
-    ],
   });
+}
+
+// Middleware to verify admin user
+async function verifyAdmin(req, res, next) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized: No user ID in token' });
+    }
+
+    const result = await pool.query(
+      'SELECT * FROM admins WHERE user_id = $1 LIMIT 1',
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(403).json({ error: 'Forbidden: Not an admin' });
+    }
+
+    next();
+  } catch (err) {
+    console.error('Admin check failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// ===== VIDEOS ROUTES =====
+
+// Get all videos
+app.get('/videos', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM videos ORDER BY created_at DESC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching videos:', err);
+    res.status(500).json({ error: 'Failed to fetch videos' });
+  }
 });
 
-// Menu
-app.get('/menu', (req, res) => {
-  res.json(menu);
+// Add a new video (Admins only)
+app.post('/admin/videos', authenticateToken, verifyAdmin, async (req, res) => {
+  try {
+    const { title, description, video_url } = req.body;
+
+    if (!title || !video_url) {
+      return res.status(400).json({ error: 'Title and video URL are required' });
+    }
+
+    const result = await pool.query(
+      'INSERT INTO videos (title, description, video_url) VALUES ($1, $2, $3) RETURNING *',
+      [title, description, video_url]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error adding video:', err);
+    res.status(500).json({ error: 'Failed to add video' });
+  }
 });
 
-// Events CRUD
-app.get('/events', async (req, res) => {
-  const { rows } = await pool.query(
-    `SELECT * FROM events ORDER BY start_at ASC`
-  );
-  res.json(rows);
+// Delete a video (Admins only)
+app.delete('/admin/videos/:id', authenticateToken, verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await pool.query('DELETE FROM videos WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting video:', err);
+    res.status(500).json({ error: 'Failed to delete video' });
+  }
 });
 
-app.post('/events', authRequired, requireRole('admin'), async (req, res) => {
-  const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
-  if (!title) return res.status(400).json({ error: 'missing_title' });
+// ===== EVENTS ROUTES (already existing) =====
+// ... keep your existing events routes here ...
 
-  const result = await pool.query(
-    `INSERT INTO events (title, description, location, price, is_featured, start_at, end_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
-     RETURNING *`,
-    [title, description, location, price, is_featured, start_at, end_at]
-  );
-  res.status(201).json(result.rows[0]);
-});
-
-app.put('/events/:id', authRequired, requireRole('admin'), async (req, res) => {
-  const { id } = req.params;
-  const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
-  const result = await pool.query(
-    `UPDATE events
-     SET title=$1, description=$2, location=$3, price=$4, is_featured=$5, start_at=$6, end_at=$7
-     WHERE id=$8 RETURNING *`,
-    [title, description, location, price, is_featured, start_at, end_at, id]
-  );
-  if (result.rows.length === 0)
-    return res.status(404).json({ error: 'event_not_found' });
-  res.json(result.rows[0]);
-});
-
-app.delete('/events/:id', authRequired, requireRole('admin'), async (req, res) => {
-  const { id } = req.params;
-  await pool.query(`DELETE FROM events WHERE id=$1`, [id]);
-  res.json({ success: true });
-});
-
-// Admin videos CRUD
-app.get('/admin/videos', authRequired, requireRole('admin'), async (req, res) => {
-  const { rows } = await pool.query(`SELECT * FROM videos ORDER BY created_at DESC`);
-  res.json(rows);
-});
-
-app.post('/admin/videos', authRequired, requireRole('admin'), async (req, res) => {
-  const { title, description, video_url } = req.body || {};
-  if (!title || !video_url)
-    return res.status(400).json({ error: 'missing_fields' });
-
-  const result = await pool.query(
-    `INSERT INTO videos (title, description, video_url)
-     VALUES ($1, $2, $3) RETURNING *`,
-    [title, description, video_url]
-  );
-  res.status(201).json(result.rows[0]);
-});
-
-app.delete('/admin/videos/:id', authRequired, requireRole('admin'), async (req, res) => {
-  const { id } = req.params;
-  await pool.query(`DELETE FROM videos WHERE id=$1`, [id]);
-  res.json({ success: true });
-});
-
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, async () => {
-  await createTables();
+// ===== START SERVER =====
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
