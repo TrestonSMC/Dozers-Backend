@@ -1,5 +1,4 @@
-// server.js (updated)
-
+// server.js
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -11,7 +10,6 @@ const dotenv = require('dotenv');
 const dns = require('node:dns');
 const menu = require('./menu.json');
 
-// Load env vars
 dotenv.config();
 dns.setDefaultResultOrder('ipv4first');
 
@@ -24,7 +22,6 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-// Postgres
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: { require: true, rejectUnauthorized: false },
@@ -36,7 +33,6 @@ app.use(express.json());
 app.use(helmet());
 app.use(rateLimit({ windowMs: 60_000, max: 120 }));
 
-// Helper: sign JWT
 function signToken(user) {
   return jwt.sign(
     { sub: user.id, role: user.role, name: user.name, email: user.email },
@@ -45,7 +41,6 @@ function signToken(user) {
   );
 }
 
-// DB table setup
 async function createTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -83,7 +78,6 @@ async function createTables() {
   `);
 }
 
-// Middleware: require auth
 function authRequired(req, res, next) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
@@ -96,7 +90,6 @@ function authRequired(req, res, next) {
   }
 }
 
-// Middleware: require role
 function requireRole(role) {
   return (req, res, next) => {
     if (!req.user || req.user.role !== role)
@@ -105,12 +98,12 @@ function requireRole(role) {
   };
 }
 
-// Routes
+// Root
 app.get('/', (req, res) => {
   res.send('API online');
 });
 
-// AUTH — REGISTER (automatic admin by domain)
+// Auth
 app.post('/auth/register', async (req, res) => {
   const { email, password, name } = req.body || {};
   if (!email || !password || !name)
@@ -137,7 +130,6 @@ app.post('/auth/register', async (req, res) => {
   }
 });
 
-// AUTH — LOGIN
 app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password)
@@ -158,7 +150,6 @@ app.post('/auth/login', async (req, res) => {
   res.json({ token, user });
 });
 
-// AUTH — CURRENT USER
 app.get('/auth/me', authRequired, async (req, res) => {
   const result = await pool.query(
     `SELECT id, email, name, role FROM users WHERE id=$1`,
@@ -169,7 +160,7 @@ app.get('/auth/me', authRequired, async (req, res) => {
   res.json(result.rows[0]);
 });
 
-// ADMIN USERS
+// Admin users
 app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => {
   const result = await pool.query(
     `SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`
@@ -177,7 +168,7 @@ app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => 
   res.json(result.rows);
 });
 
-// REWARDS
+// Rewards
 app.get('/rewards', (req, res) => {
   res.json({
     userId: 1,
@@ -191,12 +182,12 @@ app.get('/rewards', (req, res) => {
   });
 });
 
-// MENU
+// Menu
 app.get('/menu', (req, res) => {
   res.json(menu);
 });
 
-// EVENTS CRUD
+// Events CRUD
 app.get('/events', async (req, res) => {
   const { rows } = await pool.query(
     `SELECT * FROM events ORDER BY start_at ASC`
@@ -214,21 +205,18 @@ app.post('/events', authRequired, requireRole('admin'), async (req, res) => {
      RETURNING *`,
     [title, description, location, price, is_featured, start_at, end_at]
   );
-
   res.status(201).json(result.rows[0]);
 });
 
 app.put('/events/:id', authRequired, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
   const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
-
   const result = await pool.query(
     `UPDATE events
      SET title=$1, description=$2, location=$3, price=$4, is_featured=$5, start_at=$6, end_at=$7
      WHERE id=$8 RETURNING *`,
     [title, description, location, price, is_featured, start_at, end_at, id]
   );
-
   if (result.rows.length === 0)
     return res.status(404).json({ error: 'event_not_found' });
   res.json(result.rows[0]);
@@ -240,7 +228,7 @@ app.delete('/events/:id', authRequired, requireRole('admin'), async (req, res) =
   res.json({ success: true });
 });
 
-// VIDEOS CRUD
+// Admin videos CRUD
 app.get('/admin/videos', authRequired, requireRole('admin'), async (req, res) => {
   const { rows } = await pool.query(`SELECT * FROM videos ORDER BY created_at DESC`);
   res.json(rows);
@@ -256,7 +244,6 @@ app.post('/admin/videos', authRequired, requireRole('admin'), async (req, res) =
      VALUES ($1, $2, $3) RETURNING *`,
     [title, description, video_url]
   );
-
   res.status(201).json(result.rows[0]);
 });
 
@@ -266,12 +253,12 @@ app.delete('/admin/videos/:id', authRequired, requireRole('admin'), async (req, 
   res.json({ success: true });
 });
 
-// Start server
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
