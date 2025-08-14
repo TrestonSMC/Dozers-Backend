@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -18,7 +17,10 @@ dns.setDefaultResultOrder('ipv4first');
 
 // ENV
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
-const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_URL =
+  process.env.DATABASE_URL ||
+  'postgresql://postgres.fkxdolkyesmmxrtvblru:Catfish33!@aws-0-us-east-1.pooler.supabase.com:5432/postgres';
+
 if (!DATABASE_URL) {
   console.error('❌ DATABASE_URL is not set in .env');
   process.exit(1);
@@ -74,7 +76,7 @@ async function createTables() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS videos (
-      id SERIAL PRIMARY KEY,
+      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT,
       video_url TEXT NOT NULL,
@@ -110,7 +112,7 @@ app.get('/', (req, res) => {
   res.send('API online');
 });
 
-// AUTH — REGISTER
+// AUTH — REGISTER (automatic admin by domain)
 app.post('/auth/register', async (req, res) => {
   const { email, password, name } = req.body || {};
   if (!email || !password || !name)
@@ -169,12 +171,10 @@ app.get('/auth/me', authRequired, async (req, res) => {
   res.json(result.rows[0]);
 });
 
-// ADMIN USERS — Now from users table
+// ADMIN USERS
 app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => {
   const result = await pool.query(
-    `SELECT id, email, name, role, created_at FROM users 
-     WHERE role = 'admin'
-     ORDER BY created_at DESC`
+    `SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`
   );
   res.json(result.rows);
 });
@@ -269,19 +269,32 @@ app.post('/admin/videos', authRequired, requireRole('admin'), async (req, res) =
   if (!title || !video_url)
     return res.status(400).json({ error: 'missing_fields' });
 
-  const result = await pool.query(
-    `INSERT INTO videos (title, description, video_url)
-     VALUES ($1, $2, $3) RETURNING *`,
-    [title, description, video_url]
-  );
-
-  res.status(201).json(result.rows[0]);
+  try {
+    const result = await pool.query(
+      `INSERT INTO videos (title, description, video_url)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [title, description, video_url]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Add video error:', err);
+    res.status(500).json({ error: 'add_video_failed' });
+  }
 });
 
 app.delete('/admin/videos/:id', authRequired, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
-  await pool.query(`DELETE FROM videos WHERE id=$1`, [id]);
-  res.json({ success: true });
+  try {
+    const result = await pool.query(`DELETE FROM videos WHERE id::text = $1 RETURNING *`, [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'video_not_found' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete video error:', err);
+    res.status(500).json({ error: 'delete_failed' });
+  }
 });
 
 // Start server
@@ -290,6 +303,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
