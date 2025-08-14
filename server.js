@@ -10,13 +10,9 @@ const dotenv = require('dotenv');
 const dns = require('node:dns');
 const menu = require('./menu.json');
 
-// Load env vars
 dotenv.config();
-
-// Force IPv4 DNS resolution
 dns.setDefaultResultOrder('ipv4first');
 
-// ENV
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 const DATABASE_URL =
   process.env.DATABASE_URL ||
@@ -27,7 +23,6 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-// Postgres
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: { require: true, rejectUnauthorized: false },
@@ -39,7 +34,6 @@ app.use(express.json());
 app.use(helmet());
 app.use(rateLimit({ windowMs: 60_000, max: 120 }));
 
-// Helper: sign JWT
 function signToken(user) {
   return jwt.sign(
     { sub: user.id, role: user.role, name: user.name, email: user.email },
@@ -48,7 +42,6 @@ function signToken(user) {
   );
 }
 
-// DB table setup
 async function createTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -86,7 +79,6 @@ async function createTables() {
   `);
 }
 
-// Middleware: require auth
 function authRequired(req, res, next) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
@@ -99,7 +91,6 @@ function authRequired(req, res, next) {
   }
 }
 
-// Middleware: require role
 function requireRole(role) {
   return (req, res, next) => {
     if (!req.user || req.user.role !== role)
@@ -113,7 +104,7 @@ app.get('/', (req, res) => {
   res.send('API online');
 });
 
-// AUTH — REGISTER (automatic admin by domain)
+// AUTH — REGISTER (auto-admin by domain)
 app.post('/auth/register', async (req, res) => {
   const { email, password, name } = req.body || {};
   if (!email || !password || !name)
@@ -178,25 +169,6 @@ app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => 
     `SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`
   );
   res.json(result.rows);
-});
-
-// ADMIN VIDEOS — CREATE
-app.post('/admin/videos', authRequired, requireRole('admin'), async (req, res) => {
-  const { title, description, video_url } = req.body || {};
-  if (!title || !video_url)
-    return res.status(400).json({ error: 'missing_fields' });
-
-  try {
-    const result = await pool.query(
-      `INSERT INTO videos (title, description, video_url)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [title, description, video_url]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error('Video insert error:', err);
-    res.status(500).json({ error: 'insert_failed' });
-  }
 });
 
 // REWARDS
@@ -278,12 +250,42 @@ app.delete('/events/:id', authRequired, requireRole('admin'), async (req, res) =
   res.json({ success: true });
 });
 
-// Start server
+// VIDEOS — Public GET
+app.get('/videos', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT id, title, description, video_url, created_at
+     FROM videos ORDER BY created_at DESC`
+  );
+  res.json(rows);
+});
+
+// VIDEOS — Admin POST
+app.post('/admin/videos', authRequired, requireRole('admin'), async (req, res) => {
+  const { title, description, video_url } = req.body || {};
+  if (!title || !video_url)
+    return res.status(400).json({ error: 'missing_fields' });
+
+  const result = await pool.query(
+    `INSERT INTO videos (title, description, video_url)
+     VALUES ($1,$2,$3) RETURNING *`,
+    [title, description, video_url]
+  );
+  res.status(201).json(result.rows[0]);
+});
+
+// VIDEOS — Admin DELETE
+app.delete('/admin/videos/:id', authRequired, requireRole('admin'), async (req, res) => {
+  const { id } = req.params;
+  await pool.query(`DELETE FROM videos WHERE id=$1`, [id]);
+  res.json({ success: true });
+});
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
