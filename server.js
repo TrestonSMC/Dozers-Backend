@@ -83,6 +83,15 @@ async function createTables() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // ✅ Notification preferences table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notification_preferences (
+      user_id INT REFERENCES users(id) PRIMARY KEY,
+      push_enabled BOOLEAN DEFAULT true,
+      email_enabled BOOLEAN DEFAULT false
+    );
+  `);
 }
 
 // Middleware: require auth
@@ -169,6 +178,66 @@ app.get('/auth/me', authRequired, async (req, res) => {
   if (result.rows.length === 0)
     return res.status(404).json({ error: 'user_not_found' });
   res.json(result.rows[0]);
+});
+
+// ✅ AUTH — UPDATE EMAIL
+app.put('/auth/update-email', authRequired, async (req, res) => {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: 'missing_email' });
+
+  try {
+    const result = await pool.query(
+      `UPDATE users SET email=$1 WHERE id=$2 RETURNING id, email, name, role`,
+      [email.trim().toLowerCase(), req.user.sub]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'user_not_found' });
+    }
+
+    res.json({ success: true, user: result.rows[0] });
+  } catch (err) {
+    if (String(err).includes('duplicate key')) {
+      return res.status(409).json({ error: 'email_exists' });
+    }
+    console.error('Update email error:', err);
+    res.status(500).json({ error: 'update_failed' });
+  }
+});
+
+// ✅ AUTH — DELETE ACCOUNT
+app.delete('/auth/delete', authRequired, async (req, res) => {
+  try {
+    const userId = req.user.sub;
+    await pool.query(`DELETE FROM users WHERE id=$1`, [userId]);
+    res.json({ success: true, message: 'Account deleted' });
+  } catch (err) {
+    console.error('Delete account error:', err);
+    res.status(500).json({ error: 'delete_failed' });
+  }
+});
+
+// ✅ AUTH — NOTIFICATION PREFERENCES
+app.get('/auth/notifications', authRequired, async (req, res) => {
+  const result = await pool.query(
+    `SELECT push_enabled, email_enabled 
+     FROM notification_preferences WHERE user_id=$1`,
+    [req.user.sub]
+  );
+  res.json(result.rows[0] || { push_enabled: true, email_enabled: false });
+});
+
+app.put('/auth/notifications', authRequired, async (req, res) => {
+  const { push_enabled, email_enabled } = req.body || {};
+
+  await pool.query(
+    `INSERT INTO notification_preferences (user_id, push_enabled, email_enabled)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id) DO UPDATE SET push_enabled=$2, email_enabled=$3`,
+    [req.user.sub, push_enabled, email_enabled]
+  );
+
+  res.json({ success: true });
 });
 
 // ADMIN USERS
@@ -303,6 +372,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
