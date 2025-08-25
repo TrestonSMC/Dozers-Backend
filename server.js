@@ -84,7 +84,6 @@ async function createTables() {
     );
   `);
 
-  // ✅ Notification preferences table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS notification_preferences (
       user_id INT REFERENCES users(id) PRIMARY KEY,
@@ -121,7 +120,7 @@ app.get('/', (req, res) => {
   res.send('API online');
 });
 
-// AUTH — REGISTER (automatic admin by domain)
+// AUTH — REGISTER
 app.post('/auth/register', async (req, res) => {
   const { email, password, name } = req.body || {};
   if (!email || !password || !name)
@@ -180,7 +179,7 @@ app.get('/auth/me', authRequired, async (req, res) => {
   res.json(result.rows[0]);
 });
 
-// ✅ AUTH — UPDATE EMAIL
+// AUTH — UPDATE EMAIL
 app.put('/auth/update-email', authRequired, async (req, res) => {
   const { email } = req.body || {};
   if (!email) return res.status(400).json({ error: 'missing_email' });
@@ -205,7 +204,7 @@ app.put('/auth/update-email', authRequired, async (req, res) => {
   }
 });
 
-// ✅ AUTH — DELETE ACCOUNT
+// AUTH — DELETE ACCOUNT (self)
 app.delete('/auth/delete', authRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
@@ -217,7 +216,7 @@ app.delete('/auth/delete', authRequired, async (req, res) => {
   }
 });
 
-// ✅ AUTH — NOTIFICATION PREFERENCES
+// AUTH — NOTIFICATION PREFERENCES
 app.get('/auth/notifications', authRequired, async (req, res) => {
   const result = await pool.query(
     `SELECT push_enabled, email_enabled 
@@ -240,13 +239,46 @@ app.put('/auth/notifications', authRequired, async (req, res) => {
   res.json({ success: true });
 });
 
-// ADMIN USERS
+// ADMIN USERS — LIST
 app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => {
   const result = await pool.query(
     `SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`
   );
   res.json(result.rows);
 });
+
+// ✅ ADMIN USERS — DELETE
+app.delete(
+  '/admin/users/:id',
+  authRequired,
+  requireRole('admin'),
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      if (Number(id) === req.user.sub) {
+        return res.status(400).json({ error: 'cannot_delete_self' });
+      }
+
+      const result = await pool.query(
+        `DELETE FROM users WHERE id=$1 RETURNING id, email, name, role`,
+        [id]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'user_not_found' });
+      }
+
+      res.json({
+        success: true,
+        message: `User ${result.rows[0].email} deleted`,
+      });
+    } catch (err) {
+      console.error('Delete user error:', err);
+      res.status(500).json({ error: 'delete_failed' });
+    }
+  }
+);
 
 // REWARDS
 app.get('/rewards', (req, res) => {
