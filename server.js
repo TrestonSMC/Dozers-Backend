@@ -8,6 +8,7 @@ const { Pool } = require('pg');
 const dotenv = require('dotenv');
 const dns = require('node:dns');
 const menu = require('./menu.json');
+const { createClient } = require('@supabase/supabase-js');
 
 // Load env vars
 dotenv.config();
@@ -17,9 +18,9 @@ dns.setDefaultResultOrder('ipv4first');
 
 // ENV
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
-const DATABASE_URL =
-  process.env.DATABASE_URL ||
-  'postgresql://postgres.fkxdolkyesmmxrtvblru:Catfish33!@aws-0-us-east-1.pooler.supabase.com:5432/postgres';
+const DATABASE_URL = process.env.DATABASE_URL;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 if (!DATABASE_URL) {
   console.error('❌ DATABASE_URL is not set in .env');
@@ -31,6 +32,9 @@ const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: { require: true, rejectUnauthorized: false },
 });
+
+// Supabase (service role client bypasses RLS)
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const app = express();
 app.use(cors());
@@ -247,38 +251,63 @@ app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => 
   res.json(result.rows);
 });
 
-// ✅ ADMIN USERS — DELETE
-app.delete(
-  '/admin/users/:id',
-  authRequired,
-  requireRole('admin'),
-  async (req, res) => {
-    const { id } = req.params;
+// ADMIN USERS — DELETE
+app.delete('/admin/users/:id', authRequired, requireRole('admin'), async (req, res) => {
+  const { id } = req.params;
 
-    try {
-      if (Number(id) === req.user.sub) {
-        return res.status(400).json({ error: 'cannot_delete_self' });
-      }
-
-      const result = await pool.query(
-        `DELETE FROM users WHERE id=$1 RETURNING id, email, name, role`,
-        [id]
-      );
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'user_not_found' });
-      }
-
-      res.json({
-        success: true,
-        message: `User ${result.rows[0].email} deleted`,
-      });
-    } catch (err) {
-      console.error('Delete user error:', err);
-      res.status(500).json({ error: 'delete_failed' });
+  try {
+    if (Number(id) === req.user.sub) {
+      return res.status(400).json({ error: 'cannot_delete_self' });
     }
+
+    const result = await pool.query(
+      `DELETE FROM users WHERE id=$1 RETURNING id, email, name, role`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'user_not_found' });
+    }
+
+    res.json({
+      success: true,
+      message: `User ${result.rows[0].email} deleted`,
+    });
+  } catch (err) {
+    console.error('Delete user error:', err);
+    res.status(500).json({ error: 'delete_failed' });
   }
-);
+});
+
+// ADMIN — SEND NOTIFICATION (via Supabase service key)
+app.post('/admin/notifications', authRequired, requireRole('admin'), async (req, res) => {
+  const { title, message, audience = 'all' } = req.body || {};
+  if (!title) return res.status(400).json({ error: 'missing_title' });
+
+  try {
+    const { error } = await supabase
+      .from('activity_feed')
+      .insert([
+        {
+          type: 'admin',
+          title,
+          message,
+          audience,
+          date: new Date().toISOString(),
+        },
+      ]);
+
+    if (error) {
+      console.error('Supabase insert error:', error);
+      return res.status(500).json({ error: 'insert_failed' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Send notification error:', err);
+    res.status(500).json({ error: 'send_failed' });
+  }
+});
 
 // REWARDS
 app.get('/rewards', (req, res) => {
@@ -308,15 +337,7 @@ app.get('/events', async (req, res) => {
 });
 
 app.post('/events', authRequired, requireRole('admin'), async (req, res) => {
-  const {
-    title,
-    description,
-    location,
-    price,
-    is_featured,
-    start_at,
-    end_at,
-  } = req.body || {};
+  const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
   if (!title) return res.status(400).json({ error: 'missing_title' });
 
   const result = await pool.query(
@@ -331,15 +352,7 @@ app.post('/events', authRequired, requireRole('admin'), async (req, res) => {
 
 app.put('/events/:id', authRequired, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
-  const {
-    title,
-    description,
-    location,
-    price,
-    is_featured,
-    start_at,
-    end_at,
-  } = req.body || {};
+  const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
 
   const result = await pool.query(
     `UPDATE events
@@ -404,6 +417,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
