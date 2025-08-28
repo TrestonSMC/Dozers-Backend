@@ -33,7 +33,7 @@ const pool = new Pool({
   ssl: { require: true, rejectUnauthorized: false },
 });
 
-// Supabase (service role client bypasses RLS)
+// Supabase
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const app = express();
@@ -42,7 +42,7 @@ app.use(express.json());
 app.use(helmet());
 app.use(rateLimit({ windowMs: 60_000, max: 120 }));
 
-// Helper: sign JWT
+// JWT helper
 function signToken(user) {
   return jwt.sign(
     { sub: user.id, role: user.role, name: user.name, email: user.email },
@@ -51,7 +51,7 @@ function signToken(user) {
   );
 }
 
-// DB table setup
+// Create tables
 async function createTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -97,7 +97,7 @@ async function createTables() {
   `);
 }
 
-// Middleware: require auth
+// Middleware
 function authRequired(req, res, next) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
@@ -110,7 +110,6 @@ function authRequired(req, res, next) {
   }
 }
 
-// Middleware: require role
 function requireRole(role) {
   return (req, res, next) => {
     if (!req.user || req.user.role !== role)
@@ -119,7 +118,8 @@ function requireRole(role) {
   };
 }
 
-// Routes
+// ----------------- ROUTES -----------------
+
 app.get('/', (req, res) => {
   res.send('API online');
 });
@@ -208,7 +208,7 @@ app.put('/auth/update-email', authRequired, async (req, res) => {
   }
 });
 
-// AUTH — DELETE ACCOUNT (self)
+// AUTH — DELETE ACCOUNT
 app.delete('/auth/delete', authRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
@@ -243,7 +243,7 @@ app.put('/auth/notifications', authRequired, async (req, res) => {
   res.json({ success: true });
 });
 
-// ADMIN USERS — LIST
+// ADMIN USERS
 app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => {
   const result = await pool.query(
     `SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`
@@ -251,7 +251,6 @@ app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => 
   res.json(result.rows);
 });
 
-// ADMIN USERS — DELETE
 app.delete('/admin/users/:id', authRequired, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
 
@@ -309,32 +308,31 @@ app.post('/admin/notifications', authRequired, requireRole('admin'), async (req,
   }
 });
 
-// REWARDS (static demo history)
-app.get('/rewards', (req, res) => {
-  res.json({
-    userId: 1,
-    points: 230,
-    tier: 'Silver',
-    history: [
-      { date: '2025-07-15', activity: 'Food Order', points: 20 },
-      { date: '2025-07-08', activity: 'Tournament Win', points: 50 },
-      { date: '2025-07-01', activity: 'Food Order', points: 10 },
-    ],
-  });
-});
-
-// MENU
+// ----------------- MENU -----------------
 app.get('/menu', (req, res) => {
   res.json(menu);
 });
 
-// CHECKOUT + dynamic rewards
-let demoRewards = { demoUser: 230 };
+// ----------------- REWARDS -----------------
+let demoRewards = { demoUser: 0 };
+let demoRewardsHistory = { demoUser: [] };
 
+// Checkout → earns points + logs history
 app.post('/checkout', (req, res) => {
   const { userId = 'demoUser', items = [], total = 0 } = req.body;
-  const pointsEarned = Math.round(total * 0.1);
+
+  // 1 point per $1
+  const pointsEarned = Math.round(total);
+
   demoRewards[userId] = (demoRewards[userId] || 0) + pointsEarned;
+
+  const entry = {
+    date: new Date().toISOString().split('T')[0],
+    activity: "Food Purchase",
+    points: pointsEarned,
+  };
+  if (!demoRewardsHistory[userId]) demoRewardsHistory[userId] = [];
+  demoRewardsHistory[userId].unshift(entry);
 
   res.json({
     success: true,
@@ -344,6 +342,7 @@ app.post('/checkout', (req, res) => {
   });
 });
 
+// Rewards balance only
 app.get('/rewards/:userId', (req, res) => {
   const { userId } = req.params;
   res.json({
@@ -352,11 +351,19 @@ app.get('/rewards/:userId', (req, res) => {
   });
 });
 
-// EVENTS CRUD
+// Rewards + history
+app.get('/rewards/:userId/history', (req, res) => {
+  const { userId } = req.params;
+  res.json({
+    userId,
+    points: demoRewards[userId] || 0,
+    history: demoRewardsHistory[userId] || [],
+  });
+});
+
+// ----------------- EVENTS -----------------
 app.get('/events', async (req, res) => {
-  const { rows } = await pool.query(
-    `SELECT * FROM events ORDER BY start_at ASC`
-  );
+  const { rows } = await pool.query(`SELECT * FROM events ORDER BY start_at ASC`);
   res.json(rows);
 });
 
@@ -396,7 +403,7 @@ app.delete('/events/:id', authRequired, requireRole('admin'), async (req, res) =
   res.json({ success: true });
 });
 
-// VIDEOS CRUD
+// ----------------- VIDEOS -----------------
 app.get('/videos', async (req, res) => {
   const { rows } = await pool.query(`SELECT * FROM videos ORDER BY created_at DESC`);
   res.json(rows);
@@ -435,7 +442,7 @@ app.delete('/admin/videos/:id', authRequired, requireRole('admin'), async (req, 
   }
 });
 
-// Start server
+// ----------------- START -----------------
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, async () => {
   await createTables();
