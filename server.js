@@ -279,7 +279,7 @@ app.delete('/admin/users/:id', authRequired, requireRole('admin'), async (req, r
   }
 });
 
-// ADMIN — SEND NOTIFICATION (via Supabase service key)
+// ADMIN — SEND NOTIFICATION
 app.post('/admin/notifications', authRequired, requireRole('admin'), async (req, res) => {
   const { title, message, audience = 'all' } = req.body || {};
   if (!title) return res.status(400).json({ error: 'missing_title' });
@@ -309,7 +309,7 @@ app.post('/admin/notifications', authRequired, requireRole('admin'), async (req,
   }
 });
 
-// REWARDS
+// REWARDS (static demo history)
 app.get('/rewards', (req, res) => {
   res.json({
     userId: 1,
@@ -326,6 +326,30 @@ app.get('/rewards', (req, res) => {
 // MENU
 app.get('/menu', (req, res) => {
   res.json(menu);
+});
+
+// CHECKOUT + dynamic rewards
+let demoRewards = { demoUser: 230 };
+
+app.post('/checkout', (req, res) => {
+  const { userId = 'demoUser', items = [], total = 0 } = req.body;
+  const pointsEarned = Math.round(total * 0.1);
+  demoRewards[userId] = (demoRewards[userId] || 0) + pointsEarned;
+
+  res.json({
+    success: true,
+    message: 'Checkout successful',
+    pointsEarned,
+    newBalance: demoRewards[userId],
+  });
+});
+
+app.get('/rewards/:userId', (req, res) => {
+  const { userId } = req.params;
+  res.json({
+    userId,
+    points: demoRewards[userId] || 0,
+  });
 });
 
 // EVENTS CRUD
@@ -417,6 +441,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
