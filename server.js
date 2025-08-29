@@ -12,7 +12,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 // Load env vars
 dotenv.config();
-dns.setDefaultResultOrder('ipv4first'); // Force IPv4 DNS resolution
+dns.setDefaultResultOrder('ipv4first');
 
 // ENV
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
@@ -31,7 +31,7 @@ const pool = new Pool({
   ssl: { require: true, rejectUnauthorized: false },
 });
 
-// Supabase (for notifications/activity feed)
+// Supabase client (notifications/activity feed)
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const app = express();
@@ -40,7 +40,7 @@ app.use(express.json());
 app.use(helmet());
 app.use(rateLimit({ windowMs: 60_000, max: 120 }));
 
-// Helper: sign JWT
+// JWT helper
 function signToken(user) {
   return jwt.sign(
     { sub: user.id, role: user.role, name: user.name, email: user.email },
@@ -94,7 +94,6 @@ async function createTables() {
     );
   `);
 
-  // ✅ Rewards tables
   await pool.query(`
     CREATE TABLE IF NOT EXISTS rewards (
       user_id INT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -157,9 +156,10 @@ app.post('/auth/register', async (req, res) => {
     );
     const user = result.rows[0];
 
-    // create empty rewards row
+    // ensure empty rewards row
     await pool.query(
-      `INSERT INTO rewards (user_id, points) VALUES ($1, 0) ON CONFLICT DO NOTHING`,
+      `INSERT INTO rewards (user_id, points) VALUES ($1, 0)
+       ON CONFLICT DO NOTHING`,
       [user.id]
     );
 
@@ -233,12 +233,12 @@ app.delete('/admin/users/:id', authRequired, requireRole('admin'), async (req, r
 // ---------- MENU ----------
 app.get('/menu', (req, res) => res.json(menu));
 
-// ---------- REWARDS (DB-backed) ----------
-app.post('/checkout', async (req, res) => {
-  const { userId, items = [], total = 0 } = req.body;
-  if (!userId) return res.status(400).json({ error: 'missing_userId' });
+// ---------- REWARDS ----------
+app.post('/checkout', authRequired, async (req, res) => {
+  const { items = [], total = 0 } = req.body;
+  const userId = req.user.sub; // ✅ always trust JWT
 
-  const pointsEarned = Math.round(total); // 1 point per $1
+  const pointsEarned = Math.round(total);
   try {
     await pool.query(`
       INSERT INTO rewards (user_id, points)
@@ -271,7 +271,7 @@ app.post('/checkout', async (req, res) => {
   }
 });
 
-app.get('/rewards/:userId', async (req, res) => {
+app.get('/rewards/:userId', authRequired, async (req, res) => {
   const { userId } = req.params;
   try {
     const { rows } = await pool.query(
@@ -285,7 +285,7 @@ app.get('/rewards/:userId', async (req, res) => {
   }
 });
 
-app.get('/rewards/:userId/history', async (req, res) => {
+app.get('/rewards/:userId/history', authRequired, async (req, res) => {
   const { userId } = req.params;
   try {
     const { rows } = await pool.query(
@@ -320,6 +320,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
