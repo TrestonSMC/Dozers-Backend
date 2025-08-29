@@ -31,7 +31,7 @@ const pool = new Pool({
   ssl: { require: true, rejectUnauthorized: false },
 });
 
-// Supabase (for notifications/activity feed)
+// Supabase client (for notifications/activity feed)
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const app = express();
@@ -156,7 +156,6 @@ app.post('/auth/register', async (req, res) => {
     );
     const user = result.rows[0];
 
-    // ensure empty rewards row
     await pool.query(
       `INSERT INTO rewards (user_id, points) VALUES ($1, 0)
        ON CONFLICT DO NOTHING`,
@@ -236,7 +235,7 @@ app.get('/menu', (req, res) => res.json(menu));
 // ---------- REWARDS ----------
 app.post('/checkout', authRequired, async (req, res) => {
   const { items = [], total = 0 } = req.body;
-  const userId = req.user.sub; // ✅ trust JWT
+  const userId = req.user.sub;
 
   const pointsEarned = Math.round(total);
   try {
@@ -274,7 +273,6 @@ app.post('/checkout', authRequired, async (req, res) => {
 app.get('/rewards/:userId', authRequired, async (req, res) => {
   const { userId } = req.params;
   try {
-    // Ensure only owner or admin can view
     if (req.user.role !== 'admin' && req.user.sub !== Number(userId)) {
       return res.status(403).json({ error: 'forbidden' });
     }
@@ -293,7 +291,6 @@ app.get('/rewards/:userId', authRequired, async (req, res) => {
 app.get('/rewards/:userId/history', authRequired, async (req, res) => {
   const { userId } = req.params;
   try {
-    // Ensure only owner or admin can view
     if (req.user.role !== 'admin' && req.user.sub !== Number(userId)) {
       return res.status(403).json({ error: 'forbidden' });
     }
@@ -330,6 +327,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
