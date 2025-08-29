@@ -10,7 +10,6 @@ const dns = require('node:dns');
 const menu = require('./menu.json');
 const { createClient } = require('@supabase/supabase-js');
 
-// Load env vars
 dotenv.config();
 dns.setDefaultResultOrder('ipv4first');
 
@@ -31,7 +30,7 @@ const pool = new Pool({
   ssl: { require: true, rejectUnauthorized: false },
 });
 
-// Supabase client (for notifications/activity feed)
+// Supabase client
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const app = express();
@@ -295,14 +294,24 @@ app.get('/rewards/:userId/history', authRequired, async (req, res) => {
       return res.status(403).json({ error: 'forbidden' });
     }
 
-    const { rows } = await pool.query(
+    const { rows: historyRows } = await pool.query(
       `SELECT activity, points, date
        FROM reward_history
        WHERE user_id=$1
        ORDER BY date DESC`,
       [userId]
     );
-    res.json({ userId, history: rows });
+
+    const { rows: rewardRows } = await pool.query(
+      `SELECT points FROM rewards WHERE user_id=$1`,
+      [userId]
+    );
+
+    res.json({
+      userId,
+      points: rewardRows.length > 0 ? rewardRows[0].points : 0, // ✅ include balance
+      history: historyRows
+    });
   } catch (err) {
     console.error('Get history error:', err);
     res.status(500).json({ error: 'fetch_failed' });
@@ -327,6 +336,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
