@@ -56,6 +56,7 @@ async function createTables() {
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       name TEXT NOT NULL,
+      phone TEXT,
       role TEXT NOT NULL DEFAULT 'customer',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -138,8 +139,8 @@ app.get('/', (req, res) => res.send('API online'));
 
 // ---------- AUTH ----------
 app.post('/auth/register', async (req, res) => {
-  const { email, password, name } = req.body || {};
-  if (!email || !password || !name)
+  const { email, password, name, phone } = req.body || {};
+  if (!email || !password || !name || !phone)
     return res.status(400).json({ error: 'missing_fields' });
 
   const domain = email.trim().toLowerCase().split('@')[1] || '';
@@ -149,9 +150,10 @@ app.post('/auth/register', async (req, res) => {
   const hash = await bcrypt.hash(password, 10);
   try {
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash, name, role)
-       VALUES ($1, $2, $3, $4) RETURNING id, email, name, role`,
-      [email.trim().toLowerCase(), hash, name.trim(), role]
+      `INSERT INTO users (email, password_hash, name, phone, role)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, email, name, phone, role`,
+      [email.trim().toLowerCase(), hash, name.trim(), phone.trim(), role]
     );
     const user = result.rows[0];
 
@@ -185,14 +187,20 @@ app.post('/auth/login', async (req, res) => {
   const ok = await bcrypt.compare(password, row.password_hash);
   if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
 
-  const user = { id: row.id, email: row.email, name: row.name, role: row.role };
+  const user = {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    phone: row.phone,
+    role: row.role,
+  };
   const token = signToken(user);
   res.json({ token, user });
 });
 
 app.get('/auth/me', authRequired, async (req, res) => {
   const result = await pool.query(
-    `SELECT id, email, name, role FROM users WHERE id=$1`,
+    `SELECT id, email, name, phone, role FROM users WHERE id=$1`,
     [req.user.sub]
   );
   if (result.rows.length === 0)
@@ -203,7 +211,7 @@ app.get('/auth/me', authRequired, async (req, res) => {
 // ---------- ADMIN ----------
 app.get('/admin/users', authRequired, requireRole('admin'), async (req, res) => {
   const result = await pool.query(
-    `SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC`
+    `SELECT id, email, name, phone, role, created_at FROM users ORDER BY created_at DESC`
   );
   res.json(result.rows);
 });
@@ -215,7 +223,7 @@ app.delete('/admin/users/:id', authRequired, requireRole('admin'), async (req, r
       return res.status(400).json({ error: 'cannot_delete_self' });
     }
     const result = await pool.query(
-      `DELETE FROM users WHERE id=$1 RETURNING id, email, name, role`,
+      `DELETE FROM users WHERE id=$1 RETURNING id, email, name, phone, role`,
       [id]
     );
     if (result.rows.length === 0) {
@@ -309,7 +317,7 @@ app.get('/rewards/:userId/history', authRequired, async (req, res) => {
 
     res.json({
       userId,
-      points: rewardRows.length > 0 ? rewardRows[0].points : 0, // ✅ include balance
+      points: rewardRows.length > 0 ? rewardRows[0].points : 0,
       history: historyRows
     });
   } catch (err) {
@@ -336,6 +344,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
