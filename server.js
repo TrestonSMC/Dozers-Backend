@@ -76,22 +76,27 @@ async function createTables() {
     );
   `);
 
-  // Videos table with position (order field)
+  // Videos table with position (order field) and aspect_ratio
   await pool.query(`
     CREATE TABLE IF NOT EXISTS videos (
       id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT,
       video_url TEXT NOT NULL,
+      aspect_ratio TEXT DEFAULT '16:9',
       position INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
-  // In case the table existed before without position, add it safely
+  // Safe migrations in case the table existed before
   await pool.query(`
     ALTER TABLE IF EXISTS videos
     ADD COLUMN IF NOT EXISTS position INT NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    ALTER TABLE IF EXISTS videos
+    ADD COLUMN IF NOT EXISTS aspect_ratio TEXT DEFAULT '16:9';
   `);
 
   // Index for fast ordering
@@ -478,17 +483,17 @@ app.get('/videos', async (req, res) => {
 });
 
 app.post('/admin/videos', authRequired, requireRole('admin'), async (req, res) => {
-  const { title, description, video_url } = req.body || {};
+  const { title, description, video_url, aspect_ratio = '16:9' } = req.body || {};
   if (!title || !video_url) {
     return res.status(400).json({ error: 'missing_fields' });
   }
 
   try {
     const result = await pool.query(
-      `INSERT INTO videos (title, description, video_url, position)
-       VALUES ($1, $2, $3, COALESCE((SELECT MAX(position)+1 FROM videos), 0))
+      `INSERT INTO videos (title, description, video_url, aspect_ratio, position)
+       VALUES ($1, $2, $3, $4, COALESCE((SELECT MAX(position)+1 FROM videos), 0))
        RETURNING *`,
-      [title, description, video_url]
+      [title, description, video_url, aspect_ratio]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -540,6 +545,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
