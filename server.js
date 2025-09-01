@@ -280,6 +280,26 @@ app.get('/notifications', authRequired, async (req, res) => {
   }
 });
 
+// ✅ NEW: delete notification
+app.delete('/admin/notifications/:id', authRequired, requireRole('admin'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `DELETE FROM notifications WHERE id=$1 RETURNING *`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'notification_not_found' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete notification error:', err);
+    res.status(500).json({ error: 'delete_failed' });
+  }
+});
+
 // ---------- MENU ----------
 app.get('/menu', (req, res) => res.json(menu));
 
@@ -449,6 +469,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
