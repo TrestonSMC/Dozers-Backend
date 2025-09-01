@@ -112,7 +112,6 @@ async function createTables() {
     );
   `);
 
-  // ✅ New notifications table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS notifications (
       id SERIAL PRIMARY KEY,
@@ -377,6 +376,67 @@ app.get('/events', async (req, res) => {
   res.json(rows);
 });
 
+app.post('/events', authRequired, requireRole('admin'), async (req, res) => {
+  const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
+  if (!title) return res.status(400).json({ error: 'missing_title' });
+
+  try {
+    if (is_featured) {
+      await pool.query(`UPDATE events SET is_featured=false`);
+    }
+
+    const result = await pool.query(
+      `INSERT INTO events (title, description, location, price, is_featured, start_at, end_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING *`,
+      [title, description, location, price, is_featured, start_at, end_at]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Create event error:', err);
+    res.status(500).json({ error: 'create_failed' });
+  }
+});
+
+app.put('/events/:id', authRequired, requireRole('admin'), async (req, res) => {
+  const { id } = req.params;
+  const { title, description, location, price, is_featured, start_at, end_at } = req.body || {};
+
+  try {
+    if (is_featured) {
+      await pool.query(`UPDATE events SET is_featured=false`);
+    }
+
+    const result = await pool.query(
+      `UPDATE events
+       SET title=$1, description=$2, location=$3, price=$4, is_featured=$5, start_at=$6, end_at=$7
+       WHERE id=$8 RETURNING *`,
+      [title, description, location, price, is_featured, start_at, end_at, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'event_not_found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update event error:', err);
+    res.status(500).json({ error: 'update_failed' });
+  }
+});
+
+app.delete('/events/:id', authRequired, requireRole('admin'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query(`DELETE FROM events WHERE id=$1`, [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete event error:', err);
+    res.status(500).json({ error: 'delete_failed' });
+  }
+});
+
 // ---------- VIDEOS ----------
 app.get('/videos', async (req, res) => {
   const { rows } = await pool.query(`SELECT * FROM videos ORDER BY created_at DESC`);
@@ -389,6 +449,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
