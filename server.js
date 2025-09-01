@@ -30,7 +30,7 @@ const pool = new Pool({
   ssl: { require: true, rejectUnauthorized: false },
 });
 
-// Supabase client
+// Supabase client (kept for your other features)
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const app = express();
@@ -76,14 +76,27 @@ async function createTables() {
     );
   `);
 
+  // Videos table with position (order field)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS videos (
       id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT,
       video_url TEXT NOT NULL,
+      position INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+  `);
+
+  // In case the table existed before without position, add it safely
+  await pool.query(`
+    ALTER TABLE IF EXISTS videos
+    ADD COLUMN IF NOT EXISTS position INT NOT NULL DEFAULT 0;
+  `);
+
+  // Index for fast ordering
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_videos_position ON videos(position);
   `);
 
   await pool.query(`
@@ -280,7 +293,6 @@ app.get('/notifications', authRequired, async (req, res) => {
   }
 });
 
-// ✅ NEW: delete notification
 app.delete('/admin/notifications/:id', authRequired, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
   try {
@@ -459,8 +471,67 @@ app.delete('/events/:id', authRequired, requireRole('admin'), async (req, res) =
 
 // ---------- VIDEOS ----------
 app.get('/videos', async (req, res) => {
-  const { rows } = await pool.query(`SELECT * FROM videos ORDER BY created_at DESC`);
+  const { rows } = await pool.query(
+    `SELECT * FROM videos ORDER BY position ASC, created_at DESC`
+  );
   res.json(rows);
+});
+
+app.post('/admin/videos', authRequired, requireRole('admin'), async (req, res) => {
+  const { title, description, video_url } = req.body || {};
+  if (!title || !video_url) {
+    return res.status(400).json({ error: 'missing_fields' });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO videos (title, description, video_url, position)
+       VALUES ($1, $2, $3, COALESCE((SELECT MAX(position)+1 FROM videos), 0))
+       RETURNING *`,
+      [title, description, video_url]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Create video error:', err);
+    res.status(500).json({ error: 'create_failed' });
+  }
+});
+
+app.delete('/admin/videos/:id', authRequired, requireRole('admin'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(`DELETE FROM videos WHERE id=$1 RETURNING *`, [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'video_not_found' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete video error:', err);
+    res.status(500).json({ error: 'delete_failed' });
+  }
+});
+
+app.put('/admin/videos/reorder', authRequired, requireRole('admin'), async (req, res) => {
+  const { videos } = req.body || {};
+  if (!Array.isArray(videos)) {
+    return res.status(400).json({ error: 'invalid_payload' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const v of videos) {
+      await client.query(`UPDATE videos SET position=$1 WHERE id=$2`, [v.position, v.id]);
+    }
+    await client.query('COMMIT');
+    res.json({ success: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Reorder videos error:', err);
+    res.status(500).json({ error: 'reorder_failed' });
+  } finally {
+    client.release();
+  }
 });
 
 // ----------------- START -----------------
@@ -469,6 +540,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
