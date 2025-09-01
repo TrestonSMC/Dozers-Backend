@@ -111,6 +111,17 @@ async function createTables() {
       date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // ✅ New notifications table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      audience TEXT DEFAULT 'all',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 }
 
 // ----------------- MIDDLEWARE -----------------
@@ -233,6 +244,40 @@ app.delete('/admin/users/:id', authRequired, requireRole('admin'), async (req, r
   } catch (err) {
     console.error('Delete user error:', err);
     res.status(500).json({ error: 'delete_failed' });
+  }
+});
+
+// ---------- NOTIFICATIONS ----------
+app.post('/admin/notifications', authRequired, requireRole('admin'), async (req, res) => {
+  const { title, body, audience = 'all' } = req.body || {};
+  if (!title || !body) {
+    return res.status(400).json({ error: 'missing_fields' });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO notifications (title, body, audience)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [title, body, audience]
+    );
+
+    res.json({ success: true, notification: result.rows[0] });
+  } catch (err) {
+    console.error('Create notification error:', err);
+    res.status(500).json({ error: 'create_failed' });
+  }
+});
+
+app.get('/notifications', authRequired, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Fetch notifications error:', err);
+    res.status(500).json({ error: 'fetch_failed' });
   }
 });
 
