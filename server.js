@@ -7,7 +7,6 @@ const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const dotenv = require('dotenv');
 const dns = require('node:dns');
-const fetch = require('node-fetch'); // ✅ For external API calls
 const menu = require('./menu.json');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -40,6 +39,9 @@ app.use(cors());
 app.use(express.json());
 app.use(helmet());
 app.use(rateLimit({ windowMs: 60_000, max: 120 }));
+
+// Tell Express it’s behind a proxy (fixes Render trust proxy warning)
+app.set('trust proxy', 1);
 
 // JWT helper
 function signToken(user) {
@@ -201,7 +203,6 @@ app.post('/auth/register', async (req, res) => {
     );
     const user = result.rows[0];
 
-    // still create local rewards entry (optional safety)
     await pool.query(
       `INSERT INTO rewards (user_id, points) VALUES ($1, 0)
        ON CONFLICT DO NOTHING`,
@@ -520,6 +521,7 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
