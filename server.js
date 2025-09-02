@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const dotenv = require('dotenv');
 const dns = require('node:dns');
+const fetch = require('node-fetch'); // ✅ For external API calls
 const menu = require('./menu.json');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -18,6 +19,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 const DATABASE_URL = process.env.DATABASE_URL;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const TOAST_API_KEY = process.env.TOAST_API_KEY; // ✅ Toast API key
 
 if (!DATABASE_URL) {
   console.error('❌ DATABASE_URL is not set in .env');
@@ -30,7 +32,7 @@ const pool = new Pool({
   ssl: { require: true, rejectUnauthorized: false },
 });
 
-// Supabase client (kept for your other features)
+// Supabase client
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const app = express();
@@ -76,7 +78,6 @@ async function createTables() {
     );
   `);
 
-  // Videos table with position (order field) and aspect_ratio
   await pool.query(`
     CREATE TABLE IF NOT EXISTS videos (
       id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -89,7 +90,6 @@ async function createTables() {
     );
   `);
 
-  // Safe migrations in case the table existed before
   await pool.query(`
     ALTER TABLE IF EXISTS videos
     ADD COLUMN IF NOT EXISTS position INT NOT NULL DEFAULT 0;
@@ -99,7 +99,6 @@ async function createTables() {
     ADD COLUMN IF NOT EXISTS aspect_ratio TEXT DEFAULT '16:9';
   `);
 
-  // Index for fast ordering
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_videos_position ON videos(position);
   `);
@@ -165,6 +164,23 @@ function requireRole(role) {
 // ----------------- ROUTES -----------------
 app.get('/', (req, res) => res.send('API online'));
 
+// ---------- TOAST API TEST ROUTE ----------
+app.get('/toast/rewards/:phone', authRequired, async (req, res) => {
+  const { phone } = req.params;
+  try {
+    const response = await fetch(`https://api.toasttab.com/rewards/${phone}`, {
+      headers: {
+        Authorization: `Bearer ${TOAST_API_KEY}`,
+      },
+    });
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    console.error('Toast API error:', err);
+    res.status(500).json({ error: 'toast_api_failed' });
+  }
+});
+
 // ---------- AUTH ----------
 app.post('/auth/register', async (req, res) => {
   const { email, password, name, phone } = req.body || {};
@@ -185,6 +201,7 @@ app.post('/auth/register', async (req, res) => {
     );
     const user = result.rows[0];
 
+    // still create local rewards entry (optional safety)
     await pool.query(
       `INSERT INTO rewards (user_id, points) VALUES ($1, 0)
        ON CONFLICT DO NOTHING`,
@@ -321,88 +338,46 @@ app.delete('/admin/notifications/:id', authRequired, requireRole('admin'), async
 app.get('/menu', (req, res) => res.json(menu));
 
 // ---------- REWARDS ----------
-app.post('/checkout', authRequired, async (req, res) => {
-  const { items = [], total = 0 } = req.body;
-  const userId = req.user.sub;
-
-  const pointsEarned = Math.round(total);
-  try {
-    await pool.query(`
-      INSERT INTO rewards (user_id, points)
-      VALUES ($1, $2)
-      ON CONFLICT (user_id) DO UPDATE
-      SET points = rewards.points + EXCLUDED.points,
-          updated_at = CURRENT_TIMESTAMP
-    `, [userId, pointsEarned]);
-
-    await pool.query(
-      `INSERT INTO reward_history (user_id, activity, points)
-       VALUES ($1, $2, $3)`,
-      [userId, "Food Purchase", pointsEarned]
-    );
-
-    const { rows } = await pool.query(
-      `SELECT points FROM rewards WHERE user_id=$1`,
-      [userId]
-    );
-
-    res.json({
-      success: true,
-      message: 'Checkout successful',
-      pointsEarned,
-      newBalance: rows[0].points
-    });
-  } catch (err) {
-    console.error('Checkout error:', err);
-    res.status(500).json({ error: 'checkout_failed' });
-  }
-});
-
 app.get('/rewards/:userId', authRequired, async (req, res) => {
   const { userId } = req.params;
+
   try {
     if (req.user.role !== 'admin' && req.user.sub !== Number(userId)) {
       return res.status(403).json({ error: 'forbidden' });
     }
 
+    // lookup phone number for this user
     const { rows } = await pool.query(
-      `SELECT points FROM rewards WHERE user_id=$1`,
+      `SELECT phone FROM users WHERE id=$1`,
       [userId]
     );
-    res.json({ userId, points: rows.length > 0 ? rows[0].points : 0 });
-  } catch (err) {
-    console.error('Get rewards error:', err);
-    res.status(500).json({ error: 'fetch_failed' });
-  }
-});
 
-app.get('/rewards/:userId/history', authRequired, async (req, res) => {
-  const { userId } = req.params;
-  try {
-    if (req.user.role !== 'admin' && req.user.sub !== Number(userId)) {
-      return res.status(403).json({ error: 'forbidden' });
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'user_not_found' });
     }
 
-    const { rows: historyRows } = await pool.query(
-      `SELECT activity, points, date
-       FROM reward_history
-       WHERE user_id=$1
-       ORDER BY date DESC`,
-      [userId]
-    );
+    const phone = rows[0].phone;
 
-    const { rows: rewardRows } = await pool.query(
-      `SELECT points FROM rewards WHERE user_id=$1`,
-      [userId]
-    );
+    // fetch from Toast
+    const response = await fetch(`https://api.toasttab.com/rewards/${phone}`, {
+      headers: { Authorization: `Bearer ${TOAST_API_KEY}` },
+    });
+
+    if (!response.ok) {
+      console.error('Toast API error:', await response.text());
+      return res.status(500).json({ error: 'toast_api_failed' });
+    }
+
+    const toastData = await response.json();
 
     res.json({
       userId,
-      points: rewardRows.length > 0 ? rewardRows[0].points : 0,
-      history: historyRows
+      phone,
+      toastRewards: toastData
     });
+
   } catch (err) {
-    console.error('Get history error:', err);
+    console.error('Get rewards error:', err);
     res.status(500).json({ error: 'fetch_failed' });
   }
 });
@@ -545,6 +520,9 @@ app.listen(PORT, async () => {
   await createTables();
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
+
+
 
 
 
